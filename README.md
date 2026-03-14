@@ -64,13 +64,6 @@ $$
 
 con valore di default $\alpha = 0.85$.
 
-### Stima Tempi (RTX 4090)
-
-- Architettura base precedente: circa 30 secondi per training completo.
-- Architettura V2 attuale (piu capiente): in media circa 1-3 minuti, dipendendo da carico sistema, num_workers e stato cache.
-
-La stima resta coerente con il requisito operativo di rimanere nell'ordine di pochi minuti.
-
 ## Struttura Principale
 
 - src/config.py: configurazione centrale

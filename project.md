@@ -165,7 +165,7 @@ This ensures portability across diverse hardware configurations while automatica
 ### 5.4 Data Pipeline Optimization
 
 **CPU-GPU Transfer Bottleneck Mitigation**:
-- `num_workers=4-8`: Enable asynchronous data prefetching via multiprocessing
+- `num_workers=4-8`: Enable asynchronous data prefetching via multiprocessing, the user CPU is 12 cores 24 thread Ryzen 5900X.
 - `pin_memory=True`: Allocate tensors in page-locked memory for faster host-to-device transfer
 
 **Expected Impact**: Ensures GPU compute remains saturated, eliminating I/O bottlenecks.

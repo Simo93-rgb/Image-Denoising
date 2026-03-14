@@ -56,6 +56,21 @@ Output principali:
 - experiments/outputs/loss_curves.png
 - experiments/outputs/denoising_samples.png
 - experiments/logs/train_history.json
+- experiments/logs/tensorboard/
+
+Scalari disponibili su TensorBoard per epoca:
+
+- loss/train, loss/val
+- metrics/train_mse, metrics/val_mse
+- metrics/train_psnr, metrics/val_psnr
+- metrics/train_ssim, metrics/val_ssim
+- train/lr, train/epoch_time_sec
+
+Per aprire TensorBoard:
+
+```bash
+uv run tensorboard --logdir experiments/logs/tensorboard --port 6006
+```
 
 3. Valutazione test ufficiale:
 

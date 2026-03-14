@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.config import EVAL_CFG, PATHS, TRAIN_CFG
 from src.data.dataset import DenoisingPairDataset, load_fashion_mnist_csv
 from src.models.autoencoder import DenoisingAutoencoder
+from src.utils.checkpoint import extract_model_state_dict, safe_torch_load
 from src.utils.metrics import evaluate_metrics
 from src.utils.visualization import plot_denoising_samples
 
@@ -75,8 +82,8 @@ def main() -> None:
     )
 
     model = DenoisingAutoencoder().to(device)
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    checkpoint = safe_torch_load(checkpoint_path, map_location=device)
+    model.load_state_dict(extract_model_state_dict(checkpoint))
 
     metrics = evaluate(model, test_loader, device)
     print("Test metrics:", {k: f"{v:.6f}" for k, v in metrics.items()})

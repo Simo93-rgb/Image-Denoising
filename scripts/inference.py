@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
 import torch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config import PATHS, TRAIN_CFG
 from src.data.dataset import DenoisingPairDataset, load_fashion_mnist_csv
 from src.models.autoencoder import DenoisingAutoencoder
+from src.utils.checkpoint import extract_model_state_dict, safe_torch_load
 from src.utils.visualization import plot_denoising_samples
 
 
@@ -43,8 +50,8 @@ def main() -> None:
     noisy, clean, label = ds[0]
 
     model = DenoisingAutoencoder().to(device)
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    checkpoint = safe_torch_load(checkpoint_path, map_location=device)
+    model.load_state_dict(extract_model_state_dict(checkpoint))
     model.eval()
 
     noisy_b = noisy.unsqueeze(0).to(device)

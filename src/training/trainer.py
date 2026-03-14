@@ -3,11 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 import torch
 from torch import nn
+from torchmetrics.functional.image import peak_signal_noise_ratio, structural_similarity_index_measure
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+
+from src.utils.checkpoint import get_model_to_save
 
 
 @dataclass(slots=True)
@@ -27,6 +31,7 @@ class DenoisingTrainer:
         criterion: nn.Module,
         device: torch.device,
         checkpoint_dir: str | Path,
+        tb_writer: Any | None = None,
         use_amp: bool = True,
         early_stopping_patience: int = 10,
     ) -> None:
@@ -36,6 +41,7 @@ class DenoisingTrainer:
         self.device = device
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.tb_writer = tb_writer
 
         self.use_amp = use_amp and device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
@@ -51,8 +57,11 @@ class DenoisingTrainer:
 
         for epoch in range(1, epochs + 1):
             start = perf_counter()
-            train_loss = self._run_epoch(train_loader, training=True)
-            val_loss = self._run_epoch(val_loader, training=False)
+            train_stats = self._run_epoch(train_loader, training=True)
+            val_stats = self._run_epoch(val_loader, training=False)
+
+            train_loss = train_stats["loss"]
+            val_loss = val_stats["loss"]
             train_losses.append(train_loss)
             val_losses.append(val_loss)
 
@@ -65,9 +74,22 @@ class DenoisingTrainer:
                 epochs_without_improvement += 1
 
             elapsed = perf_counter() - start
+            if self.tb_writer is not None:
+                self.tb_writer.add_scalar("loss/train", train_loss, epoch)
+                self.tb_writer.add_scalar("loss/val", val_loss, epoch)
+                self.tb_writer.add_scalar("metrics/train_mse", train_stats["mse"], epoch)
+                self.tb_writer.add_scalar("metrics/val_mse", val_stats["mse"], epoch)
+                self.tb_writer.add_scalar("metrics/train_psnr", train_stats["psnr"], epoch)
+                self.tb_writer.add_scalar("metrics/val_psnr", val_stats["psnr"], epoch)
+                self.tb_writer.add_scalar("metrics/train_ssim", train_stats["ssim"], epoch)
+                self.tb_writer.add_scalar("metrics/val_ssim", val_stats["ssim"], epoch)
+                self.tb_writer.add_scalar("train/epoch_time_sec", elapsed, epoch)
+                self.tb_writer.add_scalar("train/lr", self.optimizer.param_groups[0]["lr"], epoch)
+
             print(
                 f"Epoch {epoch:03d}/{epochs:03d} | "
                 f"train_loss={train_loss:.6f} | val_loss={val_loss:.6f} | "
+                f"val_psnr={val_stats['psnr']:.3f} | val_ssim={val_stats['ssim']:.4f} | "
                 f"time={elapsed:.2f}s"
             )
 
@@ -78,6 +100,10 @@ class DenoisingTrainer:
                 )
                 break
 
+        if self.tb_writer is not None:
+            self.tb_writer.add_scalar("train/best_epoch", best_epoch, 0)
+            self.tb_writer.add_scalar("train/best_val_loss", best_val, 0)
+
         return TrainHistory(
             train_loss=train_losses,
             val_loss=val_losses,
@@ -86,9 +112,12 @@ class DenoisingTrainer:
             best_checkpoint=best_checkpoint,
         )
 
-    def _run_epoch(self, loader: DataLoader, training: bool) -> float:
+    def _run_epoch(self, loader: DataLoader, training: bool) -> dict[str, float]:
         self.model.train(training)
         total_loss = 0.0
+        total_mse = 0.0
+        total_psnr = 0.0
+        total_ssim = 0.0
         total_samples = 0
 
         iterator = tqdm(loader, leave=False, desc="Train" if training else "Val")
@@ -110,16 +139,32 @@ class DenoisingTrainer:
 
             batch_size = noisy.shape[0]
             total_loss += float(loss.detach().item()) * batch_size
+            with torch.no_grad():
+                pred = output.detach()
+                target = clean.detach()
+                mse = torch.mean((pred - target) ** 2)
+                psnr = peak_signal_noise_ratio(pred, target, data_range=1.0)
+                ssim = structural_similarity_index_measure(pred, target, data_range=1.0)
+            total_mse += float(mse.item()) * batch_size
+            total_psnr += float(psnr.item()) * batch_size
+            total_ssim += float(ssim.item()) * batch_size
             total_samples += batch_size
             iterator.set_postfix(loss=f"{loss.detach().item():.4f}")
 
-        return total_loss / max(1, total_samples)
+        denom = max(1, total_samples)
+        return {
+            "loss": total_loss / denom,
+            "mse": total_mse / denom,
+            "psnr": total_psnr / denom,
+            "ssim": total_ssim / denom,
+        }
 
     def _save_checkpoint(self, path: Path, epoch: int, val_loss: float) -> None:
+        model_to_save = get_model_to_save(self.model)
         torch.save(
             {
                 "epoch": epoch,
-                "model_state_dict": self.model.state_dict(),
+                "model_state_dict": model_to_save.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
                 "val_loss": val_loss,
             },

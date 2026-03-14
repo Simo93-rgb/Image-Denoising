@@ -2,18 +2,25 @@ from __future__ import annotations
 
 import json
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config import EVAL_CFG, PATHS, TRAIN_CFG
 from src.data.dataset import DenoisingPairDataset, load_fashion_mnist_csv
 from src.models.autoencoder import DenoisingAutoencoder
 from src.training.losses import reconstruction_loss
 from src.training.trainer import DenoisingTrainer
+from src.utils.checkpoint import extract_model_state_dict, get_model_to_save, safe_torch_load
 from src.utils.visualization import plot_denoising_samples, plot_loss_curves
 
 
@@ -110,6 +117,9 @@ def main() -> None:
     train_loader = build_loader(train_ds, shuffle=True)
     val_loader = build_loader(val_ds, shuffle=False)
 
+    tb_run_dir = PATHS.logs / "tensorboard"
+    writer = SummaryWriter(log_dir=str(tb_run_dir))
+
     model = DenoisingAutoencoder().to(device)
     if TRAIN_CFG.compile_model and hasattr(torch, "compile"):
         model = torch.compile(model, mode=TRAIN_CFG.compile_mode)
@@ -123,6 +133,7 @@ def main() -> None:
         criterion=criterion,
         device=device,
         checkpoint_dir=PATHS.checkpoints,
+        tb_writer=writer,
         use_amp=TRAIN_CFG.use_amp,
         early_stopping_patience=TRAIN_CFG.early_stopping_patience,
     )
@@ -142,8 +153,9 @@ def main() -> None:
     plot_loss_curves(history.train_loss, history.val_loss, loss_plot_path)
     print(f"Saved loss curves to: {loss_plot_path}")
 
-    checkpoint = torch.load(history.best_checkpoint, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    checkpoint = safe_torch_load(history.best_checkpoint, map_location=device)
+    model_to_load = get_model_to_save(model)
+    model_to_load.load_state_dict(extract_model_state_dict(checkpoint))
     model.eval()
 
     preview_loader = DataLoader(val_ds, batch_size=EVAL_CFG.num_preview_samples, shuffle=True)
@@ -153,9 +165,16 @@ def main() -> None:
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda" and TRAIN_CFG.use_amp)):
         denoised = model(noisy)
 
+    writer.add_images("samples/clean", clean.detach().cpu(), global_step=history.best_epoch)
+    writer.add_images("samples/noisy", noisy.detach().cpu(), global_step=history.best_epoch)
+    writer.add_images("samples/denoised", denoised.detach().cpu(), global_step=history.best_epoch)
+    writer.flush()
+    writer.close()
+
     sample_grid_path = PATHS.outputs / "denoising_samples.png"
     plot_denoising_samples(clean, noisy, denoised, sample_grid_path, max_samples=EVAL_CFG.num_preview_samples)
     print(f"Saved denoising preview grid to: {sample_grid_path}")
+    print(f"TensorBoard logs saved to: {tb_run_dir}")
 
     history_path = PATHS.logs / "train_history.json"
     with history_path.open("w", encoding="utf-8") as f:

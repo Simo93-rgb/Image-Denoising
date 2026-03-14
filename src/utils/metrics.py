@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from torchmetrics.functional import peak_signal_noise_ratio, structural_similarity_index_measure
+from torchmetrics.functional.image import peak_signal_noise_ratio, structural_similarity_index_measure
 
 
 def batch_mse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

@@ -17,6 +17,7 @@ dependencies = [
     "seaborn>=0.13.2",      # Visualizzazione loss/metriche
     "jupyter",
     "ipywidgets",
+    "tensorboard>=2.16.0",
     "colorama>=0.4.6",
     "kagglehub>=0.4.0",
 ]

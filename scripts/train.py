@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import sys
 from pathlib import Path
+
+os.environ.setdefault("TRITON_PRINT_AUTOTUNING", "0")
 
 import numpy as np
 import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from tqdm.auto import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -21,6 +25,8 @@ from src.models.autoencoder import DenoisingAutoencoder
 from src.training.losses import reconstruction_loss
 from src.training.trainer import DenoisingTrainer
 from src.utils.checkpoint import extract_model_state_dict, get_model_to_save, safe_torch_load
+from src.utils.metrics import evaluate_metrics
+from src.utils.runtime import enable_cuda_perf_flags, maybe_mark_cudagraph_step_begin
 from src.utils.visualization import plot_denoising_samples, plot_loss_curves
 
 
@@ -82,12 +88,46 @@ def build_loader(dataset: DenoisingPairDataset, shuffle: bool) -> DataLoader:
     )
 
 
+@torch.no_grad()
+def evaluate_loader_metrics(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> dict[str, float]:
+    model.eval()
+    total_mse = 0.0
+    total_psnr = 0.0
+    total_ssim = 0.0
+    total_samples = 0
+
+    for noisy, clean, _ in tqdm(loader, desc="Final metrics", leave=False):
+        noisy = noisy.to(device, non_blocking=True)
+        clean = clean.to(device, non_blocking=True)
+        if device.type == "cuda":
+            noisy = noisy.to(memory_format=torch.channels_last)
+            clean = clean.to(memory_format=torch.channels_last)
+        maybe_mark_cudagraph_step_begin()
+        with torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda" and TRAIN_CFG.use_amp)):
+            pred = model(noisy)
+
+        batch_metrics = evaluate_metrics(pred, clean)
+        batch_size = noisy.shape[0]
+        total_mse += batch_metrics["mse"] * batch_size
+        total_psnr += batch_metrics["psnr"] * batch_size
+        total_ssim += batch_metrics["ssim"] * batch_size
+        total_samples += batch_size
+
+    denom = max(1, total_samples)
+    return {
+        "mse": total_mse / denom,
+        "psnr": total_psnr / denom,
+        "ssim": total_ssim / denom,
+    }
+
+
 def main() -> None:
     set_seed(TRAIN_CFG.seed)
     ensure_dirs()
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
+    enable_cuda_perf_flags()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -101,8 +141,8 @@ def main() -> None:
         tensors.images,
         tensors.labels,
         indices=train_idx,
-        noise_std=TRAIN_CFG.noise_std,
-        fixed_noise=False,
+        noise_std=0.0 if TRAIN_CFG.use_gpu_noise_for_training else TRAIN_CFG.noise_std,
+        fixed_noise=TRAIN_CFG.use_gpu_noise_for_training,
         seed=TRAIN_CFG.seed,
     )
     val_ds = DenoisingPairDataset(
@@ -113,29 +153,55 @@ def main() -> None:
         fixed_noise=True,
         seed=TRAIN_CFG.seed,
     )
+    test_ds = DenoisingPairDataset(
+        tensors.images,
+        tensors.labels,
+        indices=test_idx,
+        noise_std=TRAIN_CFG.noise_std,
+        fixed_noise=True,
+        seed=TRAIN_CFG.seed,
+    )
 
     train_loader = build_loader(train_ds, shuffle=True)
     val_loader = build_loader(val_ds, shuffle=False)
+    test_loader = build_loader(test_ds, shuffle=False)
 
     tb_run_dir = PATHS.logs / "tensorboard"
     writer = SummaryWriter(log_dir=str(tb_run_dir))
 
-    model = DenoisingAutoencoder().to(device)
+    model = DenoisingAutoencoder(
+        base_channels=TRAIN_CFG.base_channels,
+        bottleneck_channels=TRAIN_CFG.bottleneck_channels,
+    ).to(device)
+    if device.type == "cuda":
+        model = model.to(memory_format=torch.channels_last)
     if TRAIN_CFG.compile_model and hasattr(torch, "compile"):
         model = torch.compile(model, mode=TRAIN_CFG.compile_mode)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=TRAIN_CFG.lr, weight_decay=TRAIN_CFG.weight_decay)
-    criterion = reconstruction_loss()
+    scheduler = None
+    if TRAIN_CFG.use_scheduler:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=TRAIN_CFG.scheduler_factor,
+            patience=TRAIN_CFG.scheduler_patience,
+            min_lr=TRAIN_CFG.scheduler_min_lr,
+        )
+    criterion = reconstruction_loss(alpha=TRAIN_CFG.loss_alpha)
 
     trainer = DenoisingTrainer(
         model=model,
         optimizer=optimizer,
+        scheduler=scheduler,
         criterion=criterion,
         device=device,
         checkpoint_dir=PATHS.checkpoints,
         tb_writer=writer,
         use_amp=TRAIN_CFG.use_amp,
         early_stopping_patience=TRAIN_CFG.early_stopping_patience,
+        use_gpu_noise_for_training=TRAIN_CFG.use_gpu_noise_for_training,
+        train_noise_std=TRAIN_CFG.noise_std,
     )
 
     history = trainer.fit(train_loader, val_loader, epochs=TRAIN_CFG.epochs)
@@ -162,8 +228,24 @@ def main() -> None:
     noisy, clean, _ = next(iter(preview_loader))
     noisy = noisy.to(device)
     clean = clean.to(device)
+    if device.type == "cuda":
+        noisy = noisy.to(memory_format=torch.channels_last)
+        clean = clean.to(memory_format=torch.channels_last)
+    maybe_mark_cudagraph_step_begin()
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda" and TRAIN_CFG.use_amp)):
         denoised = model(noisy)
+
+    final_val_metrics = evaluate_loader_metrics(model, val_loader, device)
+    final_test_metrics = evaluate_loader_metrics(model, test_loader, device)
+    print(
+        "Final metrics | "
+        f"val_mse={final_val_metrics['mse']:.6f}, "
+        f"val_psnr={final_val_metrics['psnr']:.3f}, "
+        f"val_ssim={final_val_metrics['ssim']:.4f} | "
+        f"test_mse={final_test_metrics['mse']:.6f}, "
+        f"test_psnr={final_test_metrics['psnr']:.3f}, "
+        f"test_ssim={final_test_metrics['ssim']:.4f}"
+    )
 
     writer.add_images("samples/clean", clean.detach().cpu(), global_step=history.best_epoch)
     writer.add_images("samples/noisy", noisy.detach().cpu(), global_step=history.best_epoch)
@@ -190,6 +272,30 @@ def main() -> None:
             indent=2,
         )
     print(f"Saved training history to: {history_path}")
+
+    final_metrics_path = PATHS.outputs / "train_final_metrics.json"
+    with final_metrics_path.open("w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "best_epoch": history.best_epoch,
+                "best_val_loss": history.best_val_loss,
+                "val_metrics": final_val_metrics,
+                "internal_test_metrics": final_test_metrics,
+                "config": {
+                    "noise_std": TRAIN_CFG.noise_std,
+                    "batch_size": TRAIN_CFG.batch_size,
+                    "epochs": TRAIN_CFG.epochs,
+                    "base_channels": TRAIN_CFG.base_channels,
+                    "bottleneck_channels": TRAIN_CFG.bottleneck_channels,
+                    "loss_alpha": TRAIN_CFG.loss_alpha,
+                    "use_amp": TRAIN_CFG.use_amp,
+                    "use_scheduler": TRAIN_CFG.use_scheduler,
+                },
+            },
+            f,
+            indent=2,
+        )
+    print(f"Saved final training metrics to: {final_metrics_path}")
 
 
 if __name__ == "__main__":

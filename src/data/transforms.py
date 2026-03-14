@@ -11,6 +11,8 @@ class AddGaussianNoise:
         self.std = std
 
     def __call__(self, tensor: torch.Tensor, generator: torch.Generator | None = None) -> torch.Tensor:
+        if self.std == 0.0 and self.mean == 0.0:
+            return tensor.clone()
         noise = torch.randn(
             tensor.shape,
             generator=generator,

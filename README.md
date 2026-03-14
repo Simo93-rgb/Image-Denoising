@@ -21,7 +21,55 @@ La repository ora include una pipeline completa conforme alle specifiche di prog
 - Training con AMP, checkpointing del best model e early stopping
 - Plot curve di train loss e val loss
 - Generazione griglia immagini clean/noisy/denoised
+- Stampa metriche finali a fine training (val + internal test)
+- Salvataggio metriche finali su file JSON
 - Valutazione quantitativa su test set ufficiale con MSE, PSNR e SSIM
+
+## Architettura Del Modello (V2)
+
+L'architettura corrente e una variante piu capiente in stile U-Net leggero, con skip connections tra encoder e decoder.
+
+```mermaid
+flowchart LR
+	A[Input 1x28x28] --> B[Enc1: Conv-BN-ReLU x2 64ch]
+	B --> C[MaxPool 14x14]
+	C --> D[Enc2: Conv-BN-ReLU x2 128ch]
+	D --> E[MaxPool 7x7]
+	E --> F[Bottleneck: Conv-BN-ReLU x2 256ch]
+	F --> G[UpConv 7->14 128ch]
+	D --> H[Skip Concatenate]
+	G --> H
+	H --> I[Dec2: Conv-BN-ReLU x2 128ch]
+	I --> J[UpConv 14->28 64ch]
+	B --> K[Skip Concatenate]
+	J --> K
+	K --> L[Dec1: Conv-BN-ReLU x2 64ch]
+	L --> M[Conv 1x1 + Sigmoid]
+	M --> N[Output 1x28x28]
+```
+
+### Motivazioni Tecniche
+
+- Skip connections: preservano dettagli locali (bordi, texture) che nel denoising hanno forte impatto visivo e su SSIM.
+- Canali aumentati (64-128-256): maggiore capacita rappresentazionale rispetto al CAE base 32-64.
+- Loss combinata MSE + (1-SSIM): MSE stabilizza il fit pixel-wise, SSIM migliora coerenza strutturale percettiva.
+- Scheduler ReduceLROnPlateau: riduce automaticamente il learning rate quando la validazione smette di migliorare.
+- AMP su GPU: mantiene training veloce senza compromettere la qualita nel tuo scenario.
+
+La loss usata e:
+
+$$
+\mathcal{L} = \alpha \cdot \mathrm{MSE}(\hat{x}, x) + (1-\alpha) \cdot (1 - \mathrm{SSIM}(\hat{x}, x))
+$$
+
+con valore di default $\alpha = 0.85$.
+
+### Stima Tempi (RTX 4090)
+
+- Architettura base precedente: circa 30 secondi per training completo.
+- Architettura V2 attuale (piu capiente): in media circa 1-3 minuti, dipendendo da carico sistema, num_workers e stato cache.
+
+La stima resta coerente con il requisito operativo di rimanere nell'ordine di pochi minuti.
 
 ## Struttura Principale
 
@@ -55,6 +103,7 @@ Output principali:
 - experiments/checkpoints/best_model.pth
 - experiments/outputs/loss_curves.png
 - experiments/outputs/denoising_samples.png
+- experiments/outputs/train_final_metrics.json
 - experiments/logs/train_history.json
 - experiments/logs/tensorboard/
 

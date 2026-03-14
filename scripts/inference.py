@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
+
+os.environ.setdefault("TRITON_PRINT_AUTOTUNING", "0")
 
 import torch
 
@@ -14,6 +17,7 @@ from src.config import PATHS, TRAIN_CFG
 from src.data.dataset import DenoisingPairDataset, load_fashion_mnist_csv
 from src.models.autoencoder import DenoisingAutoencoder
 from src.utils.checkpoint import extract_model_state_dict, safe_torch_load
+from src.utils.runtime import enable_cuda_perf_flags, maybe_mark_cudagraph_step_begin
 from src.utils.visualization import plot_denoising_samples
 
 
@@ -26,6 +30,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     PATHS.outputs.mkdir(parents=True, exist_ok=True)
+    enable_cuda_perf_flags()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint_path = PATHS.checkpoints / "best_model.pth"
@@ -49,13 +54,22 @@ def main() -> None:
     )
     noisy, clean, label = ds[0]
 
-    model = DenoisingAutoencoder().to(device)
+    model = DenoisingAutoencoder(
+        base_channels=TRAIN_CFG.base_channels,
+        bottleneck_channels=TRAIN_CFG.bottleneck_channels,
+    ).to(device)
+    if device.type == "cuda":
+        model = model.to(memory_format=torch.channels_last)
     checkpoint = safe_torch_load(checkpoint_path, map_location=device)
     model.load_state_dict(extract_model_state_dict(checkpoint))
     model.eval()
 
     noisy_b = noisy.unsqueeze(0).to(device)
     clean_b = clean.unsqueeze(0).to(device)
+    if device.type == "cuda":
+        noisy_b = noisy_b.to(memory_format=torch.channels_last)
+        clean_b = clean_b.to(memory_format=torch.channels_last)
+    maybe_mark_cudagraph_step_begin()
     with torch.no_grad(), torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda" and TRAIN_CFG.use_amp)):
         denoised_b = model(noisy_b)
 

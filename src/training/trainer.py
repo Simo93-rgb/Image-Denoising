@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from src.utils.checkpoint import get_model_to_save
+from src.utils.runtime import maybe_mark_cudagraph_step_begin
 
 
 @dataclass(slots=True)
@@ -28,15 +29,19 @@ class DenoisingTrainer:
         self,
         model: nn.Module,
         optimizer: torch.optim.Optimizer,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | torch.optim.lr_scheduler.ReduceLROnPlateau | None,
         criterion: nn.Module,
         device: torch.device,
         checkpoint_dir: str | Path,
         tb_writer: Any | None = None,
         use_amp: bool = True,
         early_stopping_patience: int = 10,
+        use_gpu_noise_for_training: bool = True,
+        train_noise_std: float = 0.3,
     ) -> None:
         self.model = model
         self.optimizer = optimizer
+        self.scheduler = scheduler
         self.criterion = criterion
         self.device = device
         self.checkpoint_dir = Path(checkpoint_dir)
@@ -46,6 +51,8 @@ class DenoisingTrainer:
         self.use_amp = use_amp and device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
         self.early_stopping_patience = early_stopping_patience
+        self.use_gpu_noise_for_training = use_gpu_noise_for_training and device.type == "cuda"
+        self.train_noise_std = train_noise_std
 
     def fit(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int) -> TrainHistory:
         train_losses: list[float] = []
@@ -72,6 +79,12 @@ class DenoisingTrainer:
                 self._save_checkpoint(best_checkpoint, epoch, val_loss)
             else:
                 epochs_without_improvement += 1
+
+            if self.scheduler is not None:
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    self.scheduler.step(val_loss)
+                else:
+                    self.scheduler.step()
 
             elapsed = perf_counter() - start
             if self.tb_writer is not None:
@@ -121,13 +134,22 @@ class DenoisingTrainer:
         total_samples = 0
 
         iterator = tqdm(loader, leave=False, desc="Train" if training else "Val")
-        for noisy, clean, _ in iterator:
-            noisy = noisy.to(self.device, non_blocking=True)
+        for noisy_cpu, clean, _ in iterator:
             clean = clean.to(self.device, non_blocking=True)
+            if self.device.type == "cuda":
+                clean = clean.to(memory_format=torch.channels_last)
+
+            if training and self.use_gpu_noise_for_training:
+                noisy = (clean + torch.randn_like(clean) * self.train_noise_std).clamp(0.0, 1.0)
+            else:
+                noisy = noisy_cpu.to(self.device, non_blocking=True)
+                if self.device.type == "cuda":
+                    noisy = noisy.to(memory_format=torch.channels_last)
 
             if training:
                 self.optimizer.zero_grad(set_to_none=True)
 
+            maybe_mark_cudagraph_step_begin()
             with torch.amp.autocast(device_type="cuda", enabled=self.use_amp):
                 output = self.model(noisy)
                 loss = self.criterion(output, clean)

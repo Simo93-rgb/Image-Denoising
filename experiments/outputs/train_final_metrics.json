@@ -1,0 +1,24 @@
+{
+  "best_epoch": 39,
+  "best_val_loss": 0.014521052444974581,
+  "val_metrics": {
+    "mse": 0.005868487508346637,
+    "psnr": 22.31701732889811,
+    "ssim": 0.8874114583333333
+  },
+  "internal_test_metrics": {
+    "mse": 0.005872772112488747,
+    "psnr": 22.313859797159832,
+    "ssim": 0.8855690104166667
+  },
+  "config": {
+    "noise_std": 0.3,
+    "batch_size": 256,
+    "epochs": 40,
+    "base_channels": 64,
+    "bottleneck_channels": 256,
+    "loss_alpha": 0.85,
+    "use_amp": true,
+    "use_scheduler": true
+  }
+}

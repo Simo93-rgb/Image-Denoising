@@ -33,9 +33,17 @@ class TrainConfig:
     val_ratio: float = 0.1
     test_ratio: float = 0.1
     compile_model: bool = True
-    compile_mode: str = "reduce-overhead"
+    compile_mode: str = "max-autotune-no-cudagraphs"
     use_amp: bool = True
     early_stopping_patience: int = 10
+    use_gpu_noise_for_training: bool = True
+    base_channels: int = 64
+    bottleneck_channels: int = 256
+    loss_alpha: float = 0.85
+    use_scheduler: bool = True
+    scheduler_factor: float = 0.5
+    scheduler_patience: int = 3
+    scheduler_min_lr: float = 1e-6
 
 
 @dataclass(slots=True)

@@ -30,7 +30,7 @@ La repository ora include una pipeline completa conforme alle specifiche di prog
 L'architettura corrente e una variante piu capiente in stile U-Net leggero, con skip connections tra encoder e decoder.
 
 ```mermaid
-flowchart LR
+flowchart TD
 	A[Input 1x28x28] --> B[Enc1: Conv-BN-ReLU x2 64ch]
 	B --> C[MaxPool 14x14]
 	C --> D[Enc2: Conv-BN-ReLU x2 128ch]

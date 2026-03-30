@@ -93,19 +93,27 @@ Tecniche di training incluse nella pipeline:
 ## 6. Metriche di valutazione
 
 Le metriche usate sono:
+#### **MSE (Mean Squared Error)**
+Errore medio quadratico tra output e target, definito come:
 
-- **MSE (Mean Squared Error)**: errore medio quadratico tra output e target, definito come
-    $$
-    \mathrm{MSE} = \frac{1}{N}\sum_{i=1}^{N}(\hat{x}_i - x_i)^2
-    $$
-    dove valori piu bassi indicano ricostruzioni migliori.
-- **PSNR (Peak Signal-to-Noise Ratio)**: misura logaritmica in decibel della qualita di ricostruzione rispetto al massimo valore di intensita:
-    $$
-    \mathrm{PSNR} = 10\log_{10}\left(\frac{\mathrm{MAX}^2}{\mathrm{MSE}}\right)
-    $$
-    dove valori piu alti indicano migliore fedelta del segnale ricostruito.
-- **SSIM (Structural Similarity Index Measure)**: indice di similarita strutturale che confronta luminanza, contrasto e struttura locale tra immagine predetta e target.
-    L'intervallo tipico e $[0,1]$, con valori piu vicini a 1 che indicano maggiore coerenza percettiva.
+$$
+\mathrm{MSE} = \frac{1}{N}\sum_{i=1}^{N}(\hat{x}_i - x_i)^2
+$$
+
+dove valori piu bassi indicano ricostruzioni migliori.
+
+#### **PSNR (Peak Signal-to-Noise Ratio)**
+Misura logaritmica in decibel della qualita di ricostruzione rispetto al massimo valore di intensita:
+
+$$
+\mathrm{PSNR} = 10\log_{10}\left(\frac{\mathrm{MAX}^2}{\mathrm{MSE}}\right)
+$$
+
+dove valori piu alti indicano migliore fedelta del segnale ricostruito.
+
+#### **SSIM (Structural Similarity Index Measure)**
+Indice di similarita strutturale che confronta luminanza, contrasto e struttura locale tra immagine predetta e target.
+L'intervallo tipico e $[0,1]$, con valori piu vicini a 1 che indicano maggiore coerenza percettiva.
 
 Le metriche vengono monitorate durante il training (train/val) e riportate su test ufficiale.
 

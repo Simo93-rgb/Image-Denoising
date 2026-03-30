@@ -22,9 +22,9 @@ class Paths:
 class TrainConfig:
     seed: int = 42
     noise_std: float = 0.3
-    batch_size: int = 256
-    epochs: int = 40
-    lr: float = 1e-3
+    batch_size: int = 512
+    epochs: int = 100
+    lr: float = 5e-4
     weight_decay: float = 1e-5
     num_workers: int = 8
     pin_memory: bool = True
@@ -32,10 +32,13 @@ class TrainConfig:
     train_ratio: float = 0.8
     val_ratio: float = 0.1
     test_ratio: float = 0.1
-    compile_model: bool = True
+    # If False, model runs in eager mode (more stable/debuggable, no compile autotuning phase).
+    compile_model: bool = False
+    # Used only when compile_model=True. Faster options may trigger an autotuning warmup.
     compile_mode: str = "max-autotune-no-cudagraphs"
     use_amp: bool = True
     early_stopping_patience: int = 10
+    early_stopping_min_delta: float = 1e-4
     use_gpu_noise_for_training: bool = True
     base_channels: int = 64
     bottleneck_channels: int = 256

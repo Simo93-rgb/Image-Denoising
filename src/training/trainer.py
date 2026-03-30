@@ -36,6 +36,7 @@ class DenoisingTrainer:
         tb_writer: Any | None = None,
         use_amp: bool = True,
         early_stopping_patience: int = 10,
+        early_stopping_min_delta: float = 0.0,
         use_gpu_noise_for_training: bool = True,
         train_noise_std: float = 0.3,
     ) -> None:
@@ -51,6 +52,7 @@ class DenoisingTrainer:
         self.use_amp = use_amp and device.type == "cuda"
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
         self.early_stopping_patience = early_stopping_patience
+        self.early_stopping_min_delta = max(0.0, float(early_stopping_min_delta))
         self.use_gpu_noise_for_training = use_gpu_noise_for_training and device.type == "cuda"
         self.train_noise_std = train_noise_std
 
@@ -72,7 +74,8 @@ class DenoisingTrainer:
             train_losses.append(train_loss)
             val_losses.append(val_loss)
 
-            if val_loss < best_val:
+            improved = (best_val - val_loss) > self.early_stopping_min_delta
+            if improved:
                 best_val = val_loss
                 best_epoch = epoch
                 epochs_without_improvement = 0

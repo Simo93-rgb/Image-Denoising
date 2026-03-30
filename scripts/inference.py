@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
-
-os.environ.setdefault("TRITON_PRINT_AUTOTUNING", "0")
 
 import torch
 
@@ -61,7 +58,17 @@ def main() -> None:
     if device.type == "cuda":
         model = model.to(memory_format=torch.channels_last)
     checkpoint = safe_torch_load(checkpoint_path, map_location=device)
-    model.load_state_dict(extract_model_state_dict(checkpoint))
+    try:
+        model.load_state_dict(extract_model_state_dict(checkpoint))
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Failed to load checkpoint due to model/checkpoint mismatch. "
+            "The checkpoint appears to come from an older architecture (e.g. keys like "
+            "'encoder.*'/'decoder.*') while current code expects the newer architecture "
+            "(e.g. 'enc1.*', 'enc2.*', 'bottleneck.*', skip decoder blocks). "
+            "Retrain with current code via 'uv run python scripts/train.py' or use a "
+            "checkpoint produced by this architecture."
+        ) from exc
     model.eval()
 
     noisy_b = noisy.unsqueeze(0).to(device)

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 import random
 import sys
 from pathlib import Path
-
-os.environ.setdefault("TRITON_PRINT_AUTOTUNING", "0")
 
 import numpy as np
 import torch
@@ -200,6 +197,7 @@ def main() -> None:
         tb_writer=writer,
         use_amp=TRAIN_CFG.use_amp,
         early_stopping_patience=TRAIN_CFG.early_stopping_patience,
+        early_stopping_min_delta=TRAIN_CFG.early_stopping_min_delta,
         use_gpu_noise_for_training=TRAIN_CFG.use_gpu_noise_for_training,
         train_noise_std=TRAIN_CFG.noise_std,
     )

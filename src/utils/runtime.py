@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import os
-
 import torch
 
 
 def enable_cuda_perf_flags() -> None:
     """Enable safe CUDA performance flags for Ampere+ GPUs."""
-    os.environ.setdefault("TRITON_PRINT_AUTOTUNING", "0")
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 

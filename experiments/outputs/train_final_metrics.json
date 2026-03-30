@@ -1,20 +1,20 @@
 {
-  "best_epoch": 39,
-  "best_val_loss": 0.014521052444974581,
+  "best_epoch": 67,
+  "best_val_loss": 0.01382641891638438,
   "val_metrics": {
-    "mse": 0.005868487508346637,
-    "psnr": 22.31701732889811,
-    "ssim": 0.8874114583333333
+    "mse": 0.005681892159084479,
+    "psnr": 22.45645125325521,
+    "ssim": 0.8909075520833334
   },
   "internal_test_metrics": {
-    "mse": 0.005872772112488747,
-    "psnr": 22.313859797159832,
-    "ssim": 0.8855690104166667
+    "mse": 0.005688665733983119,
+    "psnr": 22.451359263102212,
+    "ssim": 0.88905859375
   },
   "config": {
     "noise_std": 0.3,
-    "batch_size": 256,
-    "epochs": 40,
+    "batch_size": 512,
+    "epochs": 100,
     "base_channels": 64,
     "bottleneck_channels": 256,
     "loss_alpha": 0.85,

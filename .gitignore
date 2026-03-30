@@ -1,7 +1,13 @@
 # data
 /data
-/experiments/logs/
-/experiments/checkpoints
+/experiments/logs/*
+/experiments/checkpoints/*
+/experiments/outputs/*
+!/experiments/outputs/loss_curves.png
+!/experiments/outputs/metrics_barplot.png
+!/experiments/outputs/single_inference_idx_93.png
+!/experiments/outputs/single_inference_idx_1529.png
+!/experiments/outputs/single_inference_idx_3397.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

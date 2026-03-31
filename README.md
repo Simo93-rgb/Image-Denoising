@@ -39,6 +39,9 @@ Pipeline dati implementata:
 
 Questa impostazione consente una validazione coerente durante il training e una stima finale non contaminata delle performance.
 
+Per completezza, le 10 classi originali Fashion-MNIST sono:
+`T-shirt/top`, `Trouser`, `Pullover`, `Dress`, `Coat`, `Sandal`, `Shirt`, `Sneaker`, `Bag`, `Ankle boot`.
+
 ## 4. Architettura del modello
 
 La rete e una variante piu capiente di autoencoder in stile U-Net leggero, con skip connections tra encoder e decoder per preservare informazione locale ad alta frequenza.
@@ -167,6 +170,36 @@ Componenti principali:
 ## 8. Riproducibilita ed esecuzione
 
 La gestione ambiente avviene tramite `uv`.
+
+### 8.1 Parametri operativi (fonte autorevole: `src/config.py`)
+
+I valori usati di default negli script sono quelli definiti in `TrainConfig`:
+
+- seed: `42`
+- noise std: `0.3`
+- batch size: `512`
+- epoche massime: `100`
+- learning rate: `5e-4`
+- weight decay: `1e-5`
+- num workers: `8` (con `pin_memory=True` e `persistent_workers=True`)
+- AMP: `True`
+- early stopping: patience `10`, min delta `1e-4`
+- scheduler `ReduceLROnPlateau`: attivo (`factor=0.5`, `patience=3`, `min_lr=1e-6`)
+- compilazione modello: disattivata di default (`compile_model=False`)
+
+Nota: quando `compile_model=True`, viene usata la modalita `max-autotune-no-cudagraphs`.
+
+### 8.2 Indicazioni pratiche su performance e runtime
+
+- Il codice usa selezione automatica device (`cuda` se disponibile, altrimenti `cpu`), mantenendo portabilita tra macchine diverse.
+- La combinazione AMP + dataloader con worker multipli e memoria pinnata riduce il collo di bottiglia CPU/GPU.
+- Su input a dimensione fissa (1x28x28), lasciare attivo `torch.backends.cudnn.benchmark` puo migliorare le performance grazie all'autotuning dei kernel.
+
+### 8.3 Protocollo sintetico di riproducibilita
+
+- Fissare i seed (Python/NumPy/PyTorch) prima del training.
+- Persistire gli indici di split in `data/splits/` per riutilizzare la stessa partizione tra run.
+- Salvare checkpoint best model e storico metriche/loss per confronto retrospettivo.
 
 1. Sincronizzazione dipendenze:
 
